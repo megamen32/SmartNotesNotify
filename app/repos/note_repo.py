@@ -29,3 +29,11 @@ class NoteRepo:
             elif v is not None:
                 setattr(obj, k, v)
         await db.commit()
+
+    async def delete(self, db: AsyncSession, note_id: int) -> None:
+        q = await db.execute(select(Note).where(Note.id == note_id))
+        obj = q.scalar_one_or_none()
+        if not obj:
+            return
+        await db.delete(obj)
+        await db.commit()

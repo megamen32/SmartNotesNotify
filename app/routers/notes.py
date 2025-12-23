@@ -31,3 +31,9 @@ async def patch_note(note_id: int, payload: NotePatchIn, db: AsyncSession = Depe
 async def process_notes(user: str, db: AsyncSession = Depends(get_session)):
     processed = await svc.process_notes_by_llm(db, user)
     return {"ok": True, "processed": processed}
+
+
+@router.delete("/api/notes/{note_id}")
+async def delete_note(note_id: int, db: AsyncSession = Depends(get_session)):
+    await svc.delete_note(db, note_id)
+    return {"ok": True}

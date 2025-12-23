@@ -17,8 +17,8 @@ class NewNoteIn(BaseModel):
     device: Optional[str] = Field(None, max_length=200)
     text: str = Field(..., min_length=1, max_length=20000)
     geo: Optional[GeoIn] = None
-    pos_x: float = 0
-    pos_y: float = 0
+    pos_x: Optional[float] = None
+    pos_y: Optional[float] = None
 
 
 class NewNoteOut(BaseModel):

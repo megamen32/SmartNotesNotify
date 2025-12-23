@@ -26,11 +26,20 @@ class BoardService:
         device: str | None,
         text: str,
         geo: dict | None,
-        pos_x: float,
-        pos_y: float,
+        pos_x: float | None = None,
+        pos_y: float | None = None,
     ) -> Note:
         user = await self.ensure_user_and_defaults(db, user_key)
-        note = Note(user_id=user.id, device=device, text=text.strip(), geo=geo, pos_x=pos_x, pos_y=pos_y)
+        final_pos_x = pos_x if pos_x is not None else 0
+        final_pos_y = pos_y if pos_y is not None else 0
+        note = Note(
+            user_id=user.id,
+            device=device,
+            text=text.strip(),
+            geo=geo,
+            pos_x=final_pos_x,
+            pos_y=final_pos_y,
+        )
         return await self.notes.create(db, note)
 
     async def get_board(self, db: AsyncSession, user_key: str):
@@ -68,3 +77,6 @@ class BoardService:
             )
             count += 1
         return count
+
+    async def delete_note(self, db: AsyncSession, note_id: int) -> None:
+        await self.notes.delete(db, note_id)
