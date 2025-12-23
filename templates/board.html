@@ -45,28 +45,20 @@
     .note.done .body { text-decoration:line-through; opacity:.65; }
     .note.done .meta { opacity:.6; }
     .chip { padding:2px 8px; border:1px solid #ddd; border-radius:999px; }
-    .chip.severity-chip {
+    .severity-chip-select {
       border-color:#1d4ed8;
-      color:#1d4ed8;
-      cursor:pointer;
-    }
-    .severity-dropdown {
-      position:absolute;
-      border-radius:12px;
-      border:1px solid #1d4ed8;
-      background:#1d4ed8;
-      color:#fff;
+      color:#0f172a;
+      border-radius:999px;
+      padding:2px 8px;
       font-size:13px;
       font-weight:600;
-      padding:4px 10px;
-      z-index:20;
-      min-width:120px;
+      background:#fff;
+      cursor:pointer;
       -webkit-appearance:none;
       appearance:none;
     }
-    .severity-dropdown option {
-      color:#0f172a;
-      background:#fff;
+    .severity-chip-select option {
+      font-weight:600;
     }
     #hud {
       position:fixed; left:12px; top:12px; background:#fff; border:1px solid #ddd;
@@ -193,56 +185,6 @@ const noteEditForm = document.getElementById('noteEditForm');
 const editNoteForm = document.getElementById('editNoteForm');
 const btnCancelEdit = document.getElementById('btnCancelEdit');
 const editIsDone = document.getElementById('editIsDone');
-const severityOptions = ['low', 'normal', 'high'];
-let severityDropdown = null;
-let severityDropdownCleanup = null;
-
-function closeSeverityDropdown() {
-  if (severityDropdown) {
-    severityDropdown.remove();
-    severityDropdown = null;
-  }
-  if (severityDropdownCleanup) {
-    severityDropdownCleanup();
-    severityDropdownCleanup = null;
-  }
-}
-
-function showSeverityDropdown(anchorEl, noteId, currentSeverity) {
-  closeSeverityDropdown();
-  const select = document.createElement('select');
-  select.className = 'severity-dropdown';
-  for (const value of severityOptions) {
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = value;
-    select.appendChild(option);
-  }
-  select.value = currentSeverity ?? 'normal';
-  select.addEventListener('change', async () => {
-    closeSeverityDropdown();
-    await patchNote(noteId, { severity: select.value });
-    await loadBoard();
-  });
-  select.addEventListener('blur', closeSeverityDropdown);
-  document.body.appendChild(select);
-  severityDropdown = select;
-
-  const rect = anchorEl.getBoundingClientRect();
-  const left = Math.min(window.innerWidth - select.offsetWidth - 12, Math.max(8, rect.left - 4));
-  const top = Math.min(window.innerHeight - select.offsetHeight - 12, rect.bottom + 6);
-  select.style.left = `${left}px`;
-  select.style.top = `${top}px`;
-
-  const onPointerDown = (event) => {
-    if (!select.contains(event.target) && event.target !== anchorEl) {
-      closeSeverityDropdown();
-    }
-  };
-  document.addEventListener('pointerdown', onPointerDown, true);
-  severityDropdownCleanup = () => document.removeEventListener('pointerdown', onPointerDown, true);
-  select.focus();
-}
 
 let scale = 1;
 let panX = 0, panY = 0;
@@ -452,9 +394,13 @@ function render() {
     }
     const toggleTitle = isDone ? 'Отметить как не выполнено' : 'Отметить как выполнено';
     const toggleLabel = isDone ? '↺' : '✔';
-    const severityChipHtml = n.severity
-      ? `<span class="chip severity-chip" data-note-id="${n.id}" data-severity="${n.severity}">важность:${n.severity}</span>`
-      : '';
+    const severityChipHtml = `
+      <select class="severity-chip-select" data-note-id="${n.id}">
+        <option value="low"${n.severity === 'low' ? ' selected' : ''}>low</option>
+        <option value="normal"${n.severity === 'normal' ? ' selected' : ''}>normal</option>
+        <option value="high"${n.severity === 'high' ? ' selected' : ''}>high</option>
+      </select>
+    `;
     el.innerHTML = `
       <div class="actions">
         <button class="action-btn note-action note-edit" title="Редактировать">✎</button>
@@ -470,21 +416,17 @@ function render() {
     world.appendChild(el);
     notes.set(n.id, el);
     makeDraggable(el);
-    const severityChipEl = el.querySelector('.severity-chip');
-    if (severityChipEl) {
-      const handleSeverityToggle = (event) => {
-        event.stopPropagation();
-        event.preventDefault();
-        showSeverityDropdown(severityChipEl, n.id, n.severity);
+    const severitySelectEl = el.querySelector('.severity-chip-select');
+    if (severitySelectEl) {
+      const stopInteraction = (event) => event.stopPropagation();
+      const handleSeverityChange = async () => {
+        await patchNote(n.id, { severity: severitySelectEl.value });
+        await loadBoard();
       };
-      const stopDragStart = (event) => {
-        event.stopPropagation();
-      };
-      severityChipEl.addEventListener('click', handleSeverityToggle);
-      severityChipEl.addEventListener('touchend', handleSeverityToggle);
-      severityChipEl.addEventListener('pointerdown', stopDragStart);
-      severityChipEl.addEventListener('mousedown', stopDragStart);
-      severityChipEl.addEventListener('touchstart', stopDragStart, { passive: true });
+      severitySelectEl.addEventListener('change', handleSeverityChange);
+      severitySelectEl.addEventListener('pointerdown', stopInteraction);
+      severitySelectEl.addEventListener('mousedown', stopInteraction);
+      severitySelectEl.addEventListener('touchstart', stopInteraction, { passive: true });
     }
     const toggleBtn = el.querySelector('.note-toggle-done');
     const handleToggleDone = async (event) => {
