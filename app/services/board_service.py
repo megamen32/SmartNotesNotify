@@ -32,6 +32,7 @@ class BoardService:
             "notify_value": note.notify_value,
             "severity": note.severity,
             "tag": note.tag,
+            "is_done": note.is_done,
             "meta": note.meta,
         }
 
@@ -50,6 +51,7 @@ class BoardService:
             "severity": snapshot.get("severity"),
             "tag": snapshot.get("tag"),
             "meta": snapshot.get("meta"),
+            "is_done": snapshot.get("is_done"),
         }
 
     @staticmethod

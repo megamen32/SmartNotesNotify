@@ -39,6 +39,7 @@ class Note(Base):
 
     severity: Mapped[str] = mapped_column(SeverityEnum, nullable=False, server_default="normal")
     tag: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_done: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     meta: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
 
