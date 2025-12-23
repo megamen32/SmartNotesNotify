@@ -42,6 +42,8 @@
     .note[data-sev="high"] { border-color:#d66; }
     .note[data-sev="low"] { opacity:.85; }
     .note .meta { margin-top:8px; font-size:12px; color:#666; display:flex; gap:8px; flex-wrap:wrap; }
+    .note.done .body { text-decoration:line-through; opacity:.65; }
+    .note.done .meta { opacity:.6; }
     .chip { padding:2px 8px; border:1px solid #ddd; border-radius:999px; }
     #hud {
       position:fixed; left:12px; top:12px; background:#fff; border:1px solid #ddd;
@@ -117,6 +119,10 @@
         <option value="low">low</option>
         <option value="high">high</option>
       </select>
+      <label class="field-label">
+        <input type="checkbox" id="editIsDone" name="is_done">
+        Выполнено
+      </label>
       <label class="field-label" for="editNotify">Время</label>
       <input id="editNotify" name="notify_time" type="datetime-local">
       <div class="form-actions">
@@ -130,6 +136,7 @@
     <div class="settings-heading">Настройки вида</div>
     <label><input type="checkbox" id="viewSettingShowDevice"> Показывать device</label>
     <label><input type="checkbox" id="viewSettingShowNumber"> Показывать номер заметки</label>
+    <label><input type="checkbox" id="viewSettingHideDone"> Скрывать выполненные</label>
     <div class="form-actions">
       <button type="button" id="btnCloseViewSettings">Закрыть</button>
     </div>
@@ -154,6 +161,7 @@ const btnReset = document.getElementById('btnReset');
 const viewSettingsPanel = document.getElementById('viewSettingsPanel');
 const viewSettingShowDevice = document.getElementById('viewSettingShowDevice');
 const viewSettingShowNumber = document.getElementById('viewSettingShowNumber');
+const viewSettingHideDone = document.getElementById('viewSettingHideDone');
 const btnCloseViewSettings = document.getElementById('btnCloseViewSettings');
 const noteForm = document.getElementById('noteForm');
 const createNoteForm = document.getElementById('createNoteForm');
@@ -161,6 +169,7 @@ const btnCancelNote = document.getElementById('btnCancelNote');
 const noteEditForm = document.getElementById('noteEditForm');
 const editNoteForm = document.getElementById('editNoteForm');
 const btnCancelEdit = document.getElementById('btnCancelEdit');
+const editIsDone = document.getElementById('editIsDone');
 
 let scale = 1;
 let panX = 0, panY = 0;
@@ -333,6 +342,10 @@ function render() {
   }
 
   for (const n of data.notes) {
+    const isDone = Boolean(n.is_done);
+    if (viewSettings.hideDone && isDone) {
+      continue;
+    }
     const el = document.createElement('div');
     el.className = 'note';
     el.style.left = n.pos_x + 'px';
@@ -344,8 +357,14 @@ function render() {
     el.dataset.todoListId = (n.todo_list_id ?? '');
     el.dataset.notifyTime = n.notify_time ?? '';
     el.dataset.device = n.device ?? '';
+    el.dataset.isDone = isDone ? '1' : '0';
     if (n.todo_list_id) {
       el.classList.add('attached');
+    }
+    if (isDone) {
+      el.classList.add('done');
+    } else {
+      el.classList.remove('done');
     }
     const chips = [];
     if (viewSettings.showNumber) {
@@ -356,9 +375,15 @@ function render() {
     if (n.tag) chips.push(`tag:${n.tag}`);
     const notifyLabel = formatNotifyTime(n.notify_time);
     if (notifyLabel) chips.push(`напомню в "${notifyLabel}"`);
+    if (isDone) {
+      chips.push('выполнено');
+    }
+    const toggleTitle = isDone ? 'Отметить как не выполнено' : 'Отметить как выполнено';
+    const toggleLabel = isDone ? '↺' : '✔';
     el.innerHTML = `
       <div class="actions">
         <button class="action-btn note-action note-edit" title="Редактировать">✎</button>
+        <button class="action-btn note-action note-toggle-done" title="${toggleTitle}">${toggleLabel}</button>
         <button class="action-btn note-action note-delete delete" title="Удалить">×</button>
       </div>
       <div class="body">${escapeHtml(n.text)}</div>
@@ -369,6 +394,19 @@ function render() {
     world.appendChild(el);
     notes.set(n.id, el);
     makeDraggable(el);
+    const toggleBtn = el.querySelector('.note-toggle-done');
+    const handleToggleDone = async (event) => {
+      event.stopPropagation();
+      const id = parseInt(el.dataset.id, 10);
+      if (!id) return;
+      const current = el.dataset.isDone === '1';
+      await patchNote(id, { is_done: !current });
+      await loadBoard();
+    };
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', handleToggleDone);
+      toggleBtn.addEventListener('touchend', handleToggleDone);
+    }
     const editBtn = el.querySelector('.note-edit');
     const deleteBtn = el.querySelector('.note-delete');
     const handleEdit = (event) => {
@@ -685,9 +723,10 @@ function loadViewSettings() {
     return {
       showDevice: typeof parsed.showDevice === 'boolean' ? parsed.showDevice : true,
       showNumber: typeof parsed.showNumber === 'boolean' ? parsed.showNumber : true,
+      hideDone: typeof parsed.hideDone === 'boolean' ? parsed.hideDone : false,
     };
   } catch (err) {
-    return { showDevice: true, showNumber: true };
+    return { showDevice: true, showNumber: true, hideDone: false };
   }
 }
 
@@ -751,6 +790,7 @@ window.addEventListener('keydown', (event) => {
 btnViewSettings.addEventListener('click', () => {
   viewSettingShowDevice.checked = viewSettings.showDevice;
   viewSettingShowNumber.checked = viewSettings.showNumber;
+  viewSettingHideDone.checked = viewSettings.hideDone;
   viewSettingsPanel.classList.add('visible');
 });
 
@@ -762,10 +802,12 @@ const applyViewSettingsChanges = () => {
   updateViewSettings({
     showDevice: viewSettingShowDevice.checked,
     showNumber: viewSettingShowNumber.checked,
+    hideDone: viewSettingHideDone.checked,
   });
 };
 viewSettingShowDevice.addEventListener('change', applyViewSettingsChanges);
 viewSettingShowNumber.addEventListener('change', applyViewSettingsChanges);
+viewSettingHideDone.addEventListener('change', applyViewSettingsChanges);
 
 createNoteForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -820,9 +862,13 @@ function openEditForm(noteEl, event) {
   const textarea = editNoteForm.querySelector('textarea[name="text"]');
   const severitySelect = editNoteForm.querySelector('select[name="severity"]');
   const notifyInput = editNoteForm.querySelector('input[name="notify_time"]');
+  const isDone = noteEl.dataset.isDone === '1';
   if (textarea) textarea.value = text;
   if (severitySelect) severitySelect.value = severity;
   if (notifyInput) notifyInput.value = toDatetimeLocal(notifyTime);
+  if (editIsDone) {
+    editIsDone.checked = isDone;
+  }
   positionFormNearCursor(noteEditForm);
 }
 
@@ -838,12 +884,14 @@ editNoteForm.addEventListener('submit', async (event) => {
   const text = (formData.get('text') ?? '').toString().trim();
   const severity = (formData.get('severity') ?? 'normal').toString();
   const notifyValue = toIsoTimestamp((formData.get('notify_time') ?? '').toString());
+  const isDoneValue = editIsDone?.checked ?? false;
   const payload = {
     text,
     severity,
     notify_by: notifyValue ? 'time' : null,
     notify_value: notifyValue ? { at: notifyValue } : null,
   };
+  payload.is_done = isDoneValue;
   await fetch(`/api/notes/${editingNoteId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

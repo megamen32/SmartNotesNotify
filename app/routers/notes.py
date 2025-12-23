@@ -20,6 +20,7 @@ async def new_note(payload: NewNoteIn, request: Request, db: AsyncSession = Depe
         pos_y=payload.pos_y,
         severity=payload.severity,
         todo_list_id=payload.todo_list_id,
+        is_done=payload.is_done,
     )
     url = str(request.url_for("board_page", user=payload.user)) + f"?focus_note_id={note.id}"
     return NewNoteOut(ok=True, note_id=note.id, url=url)

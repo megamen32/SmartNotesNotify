@@ -42,6 +42,13 @@
       background:var(--card); border:1px solid var(--border); border-radius:14px; padding:12px 14px; margin-bottom:10px;
       box-shadow:0 8px 20px rgba(15,23,42,.05);
     }
+    .note-card.done {
+      opacity:0.85;
+    }
+    .note-card.done .note-body {
+      text-decoration:line-through;
+      opacity:0.6;
+    }
     .note-head { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
     .note-body { white-space:pre-wrap; line-height:1.4; font-size:15px; margin-top:6px; }
     .note-actions { display:flex; gap:6px; }
@@ -87,6 +94,10 @@
     <div class="actions">
       <a class="btn" href="/board/{{ user }}">На доску</a>
       <button class="btn" id="btnRefresh">Обновить</button>
+      <label class="btn ghost" style="align-items:center; gap:4px; cursor:pointer;">
+        <input id="toggleHideDone" type="checkbox" style="width:auto; margin-right:4px;">
+        Скрывать выполненные
+      </label>
     </div>
   </div>
 
@@ -126,6 +137,10 @@
           <option value="low">low</option>
           <option value="high">high</option>
         </select>
+        <label style="display:flex; align-items:center; gap:6px; font-size:14px; margin-top:10px;">
+          <input type="checkbox" id="editIsDone" name="is_done">
+          Выполнено
+        </label>
         <label for="editTodoList">Список</label>
         <select id="editTodoList" name="todo_list_id"></select>
         <label for="editNotify">Время</label>
@@ -150,12 +165,16 @@ const btnCancelEdit = document.getElementById('btnCancelEdit');
 const quickSeverity = document.getElementById('quickSeverity');
 const quickTodoList = document.getElementById('quickTodoList');
 const editTodoList = document.getElementById('editTodoList');
+const toggleHideDone = document.getElementById('toggleHideDone');
+const listEditIsDone = document.getElementById('editIsDone');
 
 let data = null;
 let nextNotePosition = null;
 let editingNoteId = null;
 const noteVerticalSpacing = 140;
 let todoLists = [];
+const listViewSettingsStorageKey = `list_view_settings_${user}`;
+let listViewSettings = loadListViewSettings();
 
 function escapeHtml(s) {
   return (s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
@@ -184,6 +203,36 @@ function refreshNextNotePositionFromData() {
     return;
   }
   nextNotePosition = { x: 120, y: 120 };
+}
+
+function loadListViewSettings() {
+  try {
+    const raw = localStorage.getItem(listViewSettingsStorageKey);
+    if (!raw) return { hideDone: false };
+    const parsed = JSON.parse(raw);
+    return {
+      hideDone: typeof parsed.hideDone === 'boolean' ? parsed.hideDone : false,
+    };
+  } catch (err) {
+    return { hideDone: false };
+  }
+}
+
+function saveListViewSettings(settings) {
+  try {
+    localStorage.setItem(listViewSettingsStorageKey, JSON.stringify(settings));
+  } catch (err) {
+    // ignore
+  }
+}
+
+function updateListViewSettings(fields) {
+  listViewSettings = { ...listViewSettings, ...fields };
+  saveListViewSettings(listViewSettings);
+  if (toggleHideDone) {
+    toggleHideDone.checked = listViewSettings.hideDone;
+  }
+  render();
 }
 
 function populateTodoListSelect(selectEl, selectedId) {
@@ -256,17 +305,28 @@ function buildSection(title, notes) {
     card.dataset.severity = n.severity;
     card.dataset.todoListId = n.todo_list_id ?? '';
     card.dataset.notifyTime = n.notify_time ?? '';
+    const isDone = Boolean(n.is_done);
+    card.dataset.isDone = isDone ? '1' : '0';
+    if (isDone) {
+      card.classList.add('done');
+    } else {
+      card.classList.remove('done');
+    }
     const chips = [];
     if (n.severity) chips.push(`важность:${n.severity}`);
     if (n.tag) chips.push(`tag:${n.tag}`);
     if (n.device) chips.push(`device:${n.device}`);
     const notifyLabel = formatNotifyTime(n.notify_time);
     if (notifyLabel) chips.push(`напомню в "${notifyLabel}"`);
+    if (isDone) chips.push('выполнено');
+    const toggleTitle = isDone ? 'Отметить как не выполнено' : 'Отметить как выполнено';
+    const toggleLabel = isDone ? '↺' : '✔';
     card.innerHTML = `
       <div class="note-head">
         <div></div>
         <div class="note-actions">
           <button class="note-action note-edit" title="Редактировать">✎</button>
+          <button class="note-action note-toggle-done" title="${toggleTitle}">${toggleLabel}</button>
           <button class="note-action note-delete delete" title="Удалить">×</button>
         </div>
       </div>
@@ -279,6 +339,23 @@ function buildSection(title, notes) {
     const deleteBtn = card.querySelector('.note-delete');
     if (editBtn) {
       editBtn.addEventListener('click', () => openEditModal(card));
+    }
+    const toggleBtn = card.querySelector('.note-toggle-done');
+    const handleToggleDone = async (event) => {
+      event.stopPropagation();
+      const id = parseInt(card.dataset.id, 10);
+      if (!id) return;
+      const current = card.dataset.isDone === '1';
+      await fetch(`/api/notes/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_done: !current }),
+      });
+      await loadList();
+    };
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', handleToggleDone);
+      toggleBtn.addEventListener('touchend', handleToggleDone);
     }
     if (deleteBtn) {
       deleteBtn.addEventListener('click', async () => {
@@ -318,11 +395,15 @@ function render() {
       if (bySeverity !== 0) return bySeverity;
       return a.id - b.id;
     });
-    listContainer.appendChild(buildSection(list.title, items));
+    const visibleItems = listViewSettings.hideDone ? items.filter((note) => !note.is_done) : items;
+    listContainer.appendChild(buildSection(list.title, visibleItems));
   }
   if (unassigned.length) {
     unassigned.sort((a, b) => a.id - b.id);
-    listContainer.appendChild(buildSection('Без списка', unassigned));
+    const visibleUnassigned = listViewSettings.hideDone ? unassigned.filter((note) => !note.is_done) : unassigned;
+    if (visibleUnassigned.length) {
+      listContainer.appendChild(buildSection('Без списка', visibleUnassigned));
+    }
   }
   if (!lists.length && !unassigned.length) {
     const empty = document.createElement('div');
@@ -352,6 +433,7 @@ function openEditModal(noteEl) {
   const text = noteEl.dataset.text ?? '';
   const severity = noteEl.dataset.severity ?? 'normal';
   const notifyTime = noteEl.dataset.notifyTime ?? '';
+  const isDone = noteEl.dataset.isDone === '1';
   const todoListValue = noteEl.dataset.todoListId ?? '';
   const todoListId = todoListValue ? parseInt(todoListValue, 10) : null;
   const textarea = editNoteForm.querySelector('textarea[name="text"]');
@@ -361,6 +443,9 @@ function openEditModal(noteEl) {
   if (textarea) textarea.value = text;
   if (severitySelect) severitySelect.value = severity;
   if (notifyInput) notifyInput.value = toDatetimeLocal(notifyTime);
+  if (listEditIsDone) {
+    listEditIsDone.checked = isDone;
+  }
   editModal.classList.add('visible');
 }
 
@@ -392,6 +477,7 @@ editNoteForm.addEventListener('submit', async (event) => {
     notify_value: notifyValue ? { at: notifyValue } : null,
   };
   payload.todo_list_id = todoListId;
+  payload.is_done = listEditIsDone?.checked ?? false;
   await fetch(`/api/notes/${editingNoteId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -458,6 +544,11 @@ function getPlatformLabel() {
 }
 
 btnRefresh.addEventListener('click', loadList);
+
+if (toggleHideDone) {
+  toggleHideDone.checked = listViewSettings.hideDone;
+  toggleHideDone.addEventListener('change', () => updateListViewSettings({ hideDone: toggleHideDone.checked }));
+}
 
 loadList();
 {% endraw %}

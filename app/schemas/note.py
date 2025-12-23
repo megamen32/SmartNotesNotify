@@ -21,6 +21,7 @@ class NewNoteIn(BaseModel):
     pos_y: Optional[float] = None
     todo_list_id: Optional[int] = None
     severity: Optional[Literal["low", "normal", "high"]] = None
+    is_done: Optional[bool] = None
 
 
 class NewNoteOut(BaseModel):
@@ -41,3 +42,4 @@ class NotePatchIn(BaseModel):
     notify_by: Optional[Literal["time", "location"]] = None
     notify_value: Optional[dict[str, Any]] = None
     is_processed_by_llm: Optional[bool] = None
+    is_done: Optional[bool] = None

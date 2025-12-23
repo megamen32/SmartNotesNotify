@@ -90,11 +90,13 @@ class BoardService:
         pos_y: float | None = None,
         severity: str | None = None,
         todo_list_id: int | None = None,
+        is_done: bool | None = None,
     ) -> Note:
         user = await self.ensure_user_and_defaults(db, user_key)
         final_pos_x = pos_x if pos_x is not None else 0
         final_pos_y = pos_y if pos_y is not None else 0
         final_severity = severity if severity in ("low", "normal", "high") else "normal"
+        final_is_done = bool(is_done) if is_done is not None else False
         note = Note(
             user_id=user.id,
             device=device,
@@ -104,6 +106,7 @@ class BoardService:
             pos_x=final_pos_x,
             pos_y=final_pos_y,
             severity=final_severity,
+            is_done=final_is_done,
         )
         note = await self.notes.create(db, note)
         await self.actions.clear_redo_for_user(db, user.id)
