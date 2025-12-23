@@ -19,6 +19,8 @@ class NewNoteIn(BaseModel):
     geo: Optional[GeoIn] = None
     pos_x: Optional[float] = None
     pos_y: Optional[float] = None
+    todo_list_id: Optional[int] = None
+    severity: Optional[Literal["low", "normal", "high"]] = None
 
 
 class NewNoteOut(BaseModel):

@@ -18,6 +18,8 @@ async def new_note(payload: NewNoteIn, request: Request, db: AsyncSession = Depe
         geo=(payload.geo.model_dump() if payload.geo else None),
         pos_x=payload.pos_x,
         pos_y=payload.pos_y,
+        severity=payload.severity,
+        todo_list_id=payload.todo_list_id,
     )
     url = str(request.url_for("board_page", user=payload.user)) + f"?focus_note_id={note.id}"
     return NewNoteOut(ok=True, note_id=note.id, url=url)

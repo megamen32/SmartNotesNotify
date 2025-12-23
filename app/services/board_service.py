@@ -88,17 +88,22 @@ class BoardService:
         geo: dict | None,
         pos_x: float | None = None,
         pos_y: float | None = None,
+        severity: str | None = None,
+        todo_list_id: int | None = None,
     ) -> Note:
         user = await self.ensure_user_and_defaults(db, user_key)
         final_pos_x = pos_x if pos_x is not None else 0
         final_pos_y = pos_y if pos_y is not None else 0
+        final_severity = severity if severity in ("low", "normal", "high") else "normal"
         note = Note(
             user_id=user.id,
             device=device,
             text=text.strip(),
             geo=geo,
+            todo_list_id=todo_list_id,
             pos_x=final_pos_x,
             pos_y=final_pos_y,
+            severity=final_severity,
         )
         note = await self.notes.create(db, note)
         await self.actions.clear_redo_for_user(db, user.id)

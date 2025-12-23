@@ -95,6 +95,16 @@
       <h2>Быстрое добавление</h2>
       <form id="quickNoteForm">
         <textarea name="text" rows="3" placeholder="Запиши задачу..." required maxlength="2000"></textarea>
+        <div class="form-row" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px;">
+          <label for="quickSeverity" style="font-size:12px; color:var(--muted);">Важность</label>
+          <select id="quickSeverity" name="severity" style="flex:1 1 160px; margin-right:8px;">
+            <option value="normal">normal</option>
+            <option value="low">low</option>
+            <option value="high">high</option>
+          </select>
+          <label for="quickTodoList" style="font-size:12px; color:var(--muted);">Список</label>
+          <select id="quickTodoList" name="todo_list_id" style="flex:1 1 180px; margin-right:8px;"></select>
+        </div>
         <div class="form-actions">
           <button class="btn" type="reset">Очистить</button>
           <button class="btn primary" type="submit">Добавить</button>
@@ -116,6 +126,8 @@
           <option value="low">low</option>
           <option value="high">high</option>
         </select>
+        <label for="editTodoList">Список</label>
+        <select id="editTodoList" name="todo_list_id"></select>
         <label for="editNotify">Время</label>
         <input id="editNotify" name="notify_time" type="datetime-local">
         <div class="form-actions">
@@ -135,11 +147,15 @@ const quickNoteForm = document.getElementById('quickNoteForm');
 const editModal = document.getElementById('editModal');
 const editNoteForm = document.getElementById('editNoteForm');
 const btnCancelEdit = document.getElementById('btnCancelEdit');
+const quickSeverity = document.getElementById('quickSeverity');
+const quickTodoList = document.getElementById('quickTodoList');
+const editTodoList = document.getElementById('editTodoList');
 
 let data = null;
 let nextNotePosition = null;
 let editingNoteId = null;
 const noteVerticalSpacing = 140;
+let todoLists = [];
 
 function escapeHtml(s) {
   return (s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
@@ -170,6 +186,36 @@ function refreshNextNotePositionFromData() {
   nextNotePosition = { x: 120, y: 120 };
 }
 
+function populateTodoListSelect(selectEl, selectedId) {
+  if (!selectEl) return;
+  const previousValue = selectEl.value ?? '';
+  selectEl.innerHTML = '';
+  const baseOption = document.createElement('option');
+  baseOption.value = '';
+  baseOption.textContent = 'Без списка';
+  selectEl.appendChild(baseOption);
+  for (const list of todoLists) {
+    const option = document.createElement('option');
+    option.value = String(list.id);
+    option.textContent = list.title;
+    selectEl.appendChild(option);
+  }
+  let targetValue;
+  if (selectedId === undefined) {
+    targetValue = previousValue;
+  } else if (selectedId === null) {
+    targetValue = '';
+  } else {
+    targetValue = String(selectedId);
+  }
+  selectEl.value = targetValue;
+}
+
+function refreshListSelects(selectedId) {
+  populateTodoListSelect(quickTodoList);
+  populateTodoListSelect(editTodoList, selectedId);
+}
+
 function getNextNotePlacement() {
   if (!nextNotePosition) {
     refreshNextNotePositionFromData();
@@ -180,7 +226,9 @@ function getNextNotePlacement() {
 async function loadList() {
   const res = await fetch(`/api/board/${encodeURIComponent(user)}`);
   data = await res.json();
+  todoLists = data.lists ?? [];
   refreshNextNotePositionFromData();
+  refreshListSelects();
   render();
 }
 
@@ -206,6 +254,7 @@ function buildSection(title, notes) {
     card.dataset.id = n.id;
     card.dataset.text = n.text;
     card.dataset.severity = n.severity;
+    card.dataset.todoListId = n.todo_list_id ?? '';
     card.dataset.notifyTime = n.notify_time ?? '';
     const chips = [];
     if (n.severity) chips.push(`важность:${n.severity}`);
@@ -303,9 +352,12 @@ function openEditModal(noteEl) {
   const text = noteEl.dataset.text ?? '';
   const severity = noteEl.dataset.severity ?? 'normal';
   const notifyTime = noteEl.dataset.notifyTime ?? '';
+  const todoListValue = noteEl.dataset.todoListId ?? '';
+  const todoListId = todoListValue ? parseInt(todoListValue, 10) : null;
   const textarea = editNoteForm.querySelector('textarea[name="text"]');
   const severitySelect = editNoteForm.querySelector('select[name="severity"]');
   const notifyInput = editNoteForm.querySelector('input[name="notify_time"]');
+  populateTodoListSelect(editTodoList, todoListId);
   if (textarea) textarea.value = text;
   if (severitySelect) severitySelect.value = severity;
   if (notifyInput) notifyInput.value = toDatetimeLocal(notifyTime);
@@ -331,12 +383,15 @@ editNoteForm.addEventListener('submit', async (event) => {
   const text = (formData.get('text') ?? '').toString().trim();
   const severity = (formData.get('severity') ?? 'normal').toString();
   const notifyValue = toIsoTimestamp((formData.get('notify_time') ?? '').toString());
+  const todoListValue = (formData.get('todo_list_id') ?? '').toString();
+  const todoListId = todoListValue ? parseInt(todoListValue, 10) : null;
   const payload = {
     text,
     severity,
     notify_by: notifyValue ? 'time' : null,
     notify_value: notifyValue ? { at: notifyValue } : null,
   };
+  payload.todo_list_id = todoListId;
   await fetch(`/api/notes/${editingNoteId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -350,6 +405,9 @@ quickNoteForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const formData = new FormData(quickNoteForm);
   const text = (formData.get('text') ?? '').toString().trim();
+  const severity = (formData.get('severity') ?? 'normal').toString();
+  const todoListValue = (formData.get('todo_list_id') ?? '').toString();
+  const todoListId = todoListValue ? parseInt(todoListValue, 10) : null;
   if (!text) return;
   const placement = getNextNotePlacement();
   const x = placement.x;
@@ -363,6 +421,8 @@ quickNoteForm.addEventListener('submit', async (event) => {
       device: getPlatformLabel(),
       pos_x: x,
       pos_y: y,
+      severity,
+      todo_list_id: todoListId,
     }),
   });
   nextNotePosition = { x, y: y + noteVerticalSpacing };
