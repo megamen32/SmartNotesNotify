@@ -420,6 +420,12 @@ function render() {
     if (severitySelectEl) {
       const stopInteraction = (event) => event.stopPropagation();
       const handleSeverityChange = async () => {
+        const frameId = Number(n.todo_list_id);
+        if (Number.isFinite(frameId)) {
+          pendingLayoutFrameId = frameId;
+        } else {
+          pendingLayoutFrameId = null;
+        }
         await patchNote(n.id, { severity: severitySelectEl.value });
         await loadBoard();
       };
