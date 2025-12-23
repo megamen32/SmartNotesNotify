@@ -426,7 +426,10 @@ function render() {
         } else {
           pendingLayoutFrameId = null;
         }
-        await patchNote(n.id, { severity: severitySelectEl.value });
+        const nextSeverity = severitySelectEl.value;
+        n.severity = nextSeverity;
+        await patchNote(n.id, { severity: nextSeverity });
+        await layoutNotesInFrames();
         await loadBoard();
       };
       severitySelectEl.addEventListener('change', handleSeverityChange);
