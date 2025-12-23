@@ -14,10 +14,17 @@
     }
     .frame .title { font-weight:600; margin-bottom:8px; }
     .note {
-      position:absolute; width:260px; min-height:80px; border-radius:14px; padding:12px 10px 10px;
+      position:absolute; width:260px; min-height:80px; border-radius:14px; padding:24px 10px 10px;
       background:#fff; border:1px solid #ddd; box-shadow:0 6px 18px rgba(0,0,0,.08);
-      box-sizing:border-box; cursor:grab;
+      box-sizing:border-box; cursor:grab; user-select:none; touch-action:none;
     }
+    .note.dragging { cursor:grabbing; z-index:5; }
+    .note .actions { position:absolute; top:6px; right:6px; display:flex; gap:6px; }
+    .note .action-btn {
+      border:1px solid #d4d4d4; background:#fff; border-radius:8px; padding:2px 6px; cursor:pointer; font-size:14px;
+    }
+    .note .action-btn.delete { color:#b91c1c; border-color:#f0b4b4; }
+    .note .body { white-space:pre-wrap; }
     .note[data-sev="high"] { border-color:#d66; }
     .note[data-sev="low"] { opacity:.85; }
     .note .meta { margin-top:8px; font-size:12px; color:#666; display:flex; gap:8px; flex-wrap:wrap; }
@@ -118,6 +125,9 @@ let pinchStartScale = 1;
 let pinchCenter = { x: 0, y: 0 };
 let pinchWorldCenter = { x: 0, y: 0 };
 let editingNoteId = null;
+let hasAutoFit = false;
+const noteVerticalSpacing = 140;
+let nextNotePosition = null;
 
 function applyTransform() {
   world.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
@@ -138,7 +148,34 @@ window.addEventListener('pointermove', (event) => {
 async function loadBoard() {
   const res = await fetch(`/api/board/${encodeURIComponent(user)}`);
   data = await res.json();
+  refreshNextNotePositionFromData();
   render();
+  if (!hasAutoFit) {
+    fitViewToLists();
+    hasAutoFit = true;
+  }
+}
+
+function getBoardCenterPosition() {
+  return screenToWorld(viewport.clientWidth / 2, viewport.clientHeight / 2);
+}
+
+function refreshNextNotePositionFromData() {
+  if (data?.notes?.length) {
+    const latest = data.notes[0];
+    const baseX = latest.pos_x ?? 0;
+    const baseY = latest.pos_y ?? 0;
+    nextNotePosition = { x: baseX, y: baseY + noteVerticalSpacing };
+    return;
+  }
+  nextNotePosition = getBoardCenterPosition();
+}
+
+function getNextNotePlacement() {
+  if (!nextNotePosition) {
+    refreshNextNotePositionFromData();
+  }
+  return { ...nextNotePosition };
 }
 
 function render() {
@@ -167,10 +204,15 @@ function render() {
     el.dataset.id = n.id;
     el.dataset.text = n.text;
     el.dataset.severity = n.severity;
+    el.dataset.sev = n.severity;
     el.dataset.todoListId = (n.todo_list_id ?? '');
     el.dataset.notifyTime = n.notify_time ?? '';
     el.innerHTML = `
-      <div>${escapeHtml(n.text)}</div>
+      <div class="actions">
+        <button class="action-btn note-action note-edit" title="Редактировать">✎</button>
+        <button class="action-btn note-action note-delete delete" title="Удалить">×</button>
+      </div>
+      <div class="body">${escapeHtml(n.text)}</div>
       <div class="meta">
         <span class="chip">#${n.id}</span>
         <span class="chip">${n.severity}</span>
@@ -181,10 +223,24 @@ function render() {
     world.appendChild(el);
     notes.set(n.id, el);
     makeDraggable(el);
-    el.addEventListener('dblclick', (event) => {
-      event.stopPropagation();
-      openEditForm(el, event);
-    });
+    const editBtn = el.querySelector('.note-edit');
+    const deleteBtn = el.querySelector('.note-delete');
+    if (editBtn) {
+      editBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        openEditForm(el, event);
+      });
+    }
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        const id = parseInt(el.dataset.id, 10);
+        if (!id) return;
+        if (!confirm('Удалить заметку?')) return;
+        await fetch(`/api/notes/${id}`, { method:'DELETE' });
+        await loadBoard();
+      });
+    }
   }
 }
 
@@ -220,33 +276,55 @@ function findFrameUnderNote(noteEl) {
 function makeDraggable(el) {
   let dragging = false;
   let start = null;
+  let moved = false;
+  let startClient = null;
+  let activeTouchId = null;
 
-  el.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
+  const stopDragging = () => {
+    dragging = false;
+    el.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    document.removeEventListener('touchmove', onTouchMove);
+    document.removeEventListener('touchend', onTouchEnd);
+    document.removeEventListener('touchcancel', onTouchEnd);
+    activeTouchId = null;
+  };
+
+  const startDragAt = (clientX, clientY) => {
     dragging = true;
-    el.setPointerCapture(e.pointerId);
-    el.style.cursor = 'grabbing';
-    const p = screenToWorld(e.clientX, e.clientY);
+    el.classList.add('dragging');
+    const p = screenToWorld(clientX, clientY);
     start = {
       mouseX: p.x, mouseY: p.y,
       left: parseFloat(el.style.left || '0'),
       top: parseFloat(el.style.top || '0'),
     };
-  });
+    moved = false;
+    startClient = { x: clientX, y: clientY };
+  };
 
-  el.addEventListener('pointermove', (e) => {
+  const moveDragAt = (clientX, clientY) => {
     if (!dragging) return;
-    const p = screenToWorld(e.clientX, e.clientY);
+    const p = screenToWorld(clientX, clientY);
     const dx = p.x - start.mouseX;
     const dy = p.y - start.mouseY;
     el.style.left = (start.left + dx) + 'px';
     el.style.top = (start.top + dy) + 'px';
-  });
+    if (!moved && startClient) {
+      const dist = Math.hypot(clientX - startClient.x, clientY - startClient.y);
+      if (dist > 6) moved = true;
+    }
+  };
 
-  el.addEventListener('pointerup', async () => {
+  const finalizeDrag = async (eventLike) => {
     if (!dragging) return;
-    dragging = false;
-    el.style.cursor = 'grab';
+    stopDragging();
+
+    if (!moved) {
+      openEditForm(el, eventLike);
+      return;
+    }
 
     const id = parseInt(el.dataset.id, 10);
     const pos_x = parseFloat(el.style.left);
@@ -256,7 +334,44 @@ function makeDraggable(el) {
     const patch = { pos_x, pos_y, todo_list_id: frameId };
     await patchNote(id, patch);
     await loadBoard();
+  };
+
+  const onMouseMove = (e) => moveDragAt(e.clientX, e.clientY);
+  const onMouseUp = (e) => finalizeDrag(e);
+
+  const onTouchMove = (e) => {
+    if (activeTouchId === null) return;
+    const touch = Array.from(e.changedTouches).find((t) => t.identifier === activeTouchId);
+    if (!touch) return;
+    e.preventDefault();
+    moveDragAt(touch.clientX, touch.clientY);
+  };
+  const onTouchEnd = (e) => {
+    if (activeTouchId === null) return;
+    const touch = Array.from(e.changedTouches).find((t) => t.identifier === activeTouchId);
+    if (!touch) return;
+    finalizeDrag({ clientX: touch.clientX, clientY: touch.clientY });
+  };
+
+  el.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('.note-action')) return;
+    e.preventDefault();
+    startDragAt(e.clientX, e.clientY);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
   });
+
+  el.addEventListener('touchstart', (e) => {
+    if (e.target.closest('.note-action')) return;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    activeTouchId = touch.identifier;
+    startDragAt(touch.clientX, touch.clientY);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchEnd);
+  }, { passive: true });
 }
 
 function positionFormNearCursor(el) {
@@ -294,7 +409,9 @@ createNoteForm.addEventListener('submit', async (event) => {
   if (!text) {
     return;
   }
-  const { x, y } = screenToWorld(viewport.clientWidth / 2, viewport.clientHeight / 2);
+  const placement = getNextNotePlacement();
+  const x = placement.x;
+  const y = placement.y;
   await fetch('/new_note', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -306,6 +423,7 @@ createNoteForm.addEventListener('submit', async (event) => {
       pos_y: y,
     }),
   });
+  nextNotePosition = { x, y: y + noteVerticalSpacing };
   closeForm(noteForm);
   createNoteForm.reset();
   await loadBoard();
@@ -465,14 +583,42 @@ btnProcess.addEventListener('click', async () => {
 });
 
 btnReset.addEventListener('click', () => {
-  scale = 1;
-  panX = 0;
-  panY = 0;
-  applyTransform();
+  fitViewToLists();
 });
 
 applyTransform();
 loadBoard();
+
+function fitViewToLists() {
+  if (!data || !data.lists || data.lists.length === 0) {
+    scale = 1;
+    panX = 0;
+    panY = 0;
+    applyTransform();
+    return;
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const fr of data.lists) {
+    minX = Math.min(minX, fr.pos_x);
+    minY = Math.min(minY, fr.pos_y);
+    maxX = Math.max(maxX, fr.pos_x + fr.width);
+    maxY = Math.max(maxY, fr.pos_y + fr.height);
+  }
+  const boundsW = Math.max(1, maxX - minX);
+  const boundsH = Math.max(1, maxY - minY);
+  const padding = 40;
+  const scaleX = (viewport.clientWidth - padding * 2) / boundsW;
+  const scaleY = (viewport.clientHeight - padding * 2) / boundsH;
+  scale = Math.min(2.5, Math.max(0.35, Math.min(scaleX, scaleY)));
+  const centerX = minX + boundsW / 2;
+  const centerY = minY + boundsH / 2;
+  panX = viewport.clientWidth / 2 - centerX * scale;
+  panY = viewport.clientHeight / 2 - centerY * scale;
+  applyTransform();
+}
 {% endraw %}
 </script>
 </body>
