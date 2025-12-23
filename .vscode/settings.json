@@ -1,0 +1,14 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "driver": "PostgreSQL",
+            "name": "def",
+            "database": "video_user",
+            "username": "postgres",
+            "connectString": "postgresql+asyncpg://roomhacker:aofhkLSD25i@localhost:5432/notes_db"
+        }
+    ]
+}
