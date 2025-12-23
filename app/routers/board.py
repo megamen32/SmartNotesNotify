@@ -60,6 +60,19 @@ async def board_page(user: str, request: Request):
     )
     return response
 
+@router.get("/list/{user}", response_class=HTMLResponse, name="list_page")
+async def list_page(user: str, request: Request):
+    response = templates.TemplateResponse("list.html", {"request": request, "user": user})
+    response.set_cookie(
+        key="smartnotes_user",
+        value=user,
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
 @router.patch("/api/todo_lists/{list_id}")
 async def patch_todo_list(list_id: int, payload: TodoListPatchIn, db: AsyncSession = Depends(get_session)):
     await svc.patch_todo_list(db, list_id, **payload.model_dump())

@@ -1,0 +1,406 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Список — {{ user }}</title>
+  <style>
+    :root {
+      --bg: #f7f6f2;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --accent: #1d4ed8;
+      --danger: #b91c1c;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; height:100%; font-family:-apple-system,system-ui,sans-serif; color:var(--text); background:var(--bg); }
+    body { overflow:auto; }
+    .topbar {
+      position:sticky; top:0; z-index:5;
+      display:flex; align-items:center; gap:12px; justify-content:space-between;
+      padding:12px 16px; background:rgba(247,246,242,0.95); border-bottom:1px solid var(--border);
+      backdrop-filter: blur(6px);
+    }
+    .topbar .title { font-weight:700; font-size:18px; }
+    .topbar .actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+    .btn {
+      border:1px solid var(--border); background:#fff; border-radius:10px; padding:8px 12px; cursor:pointer;
+      font-size:14px; color:var(--text); text-decoration:none; display:inline-flex; align-items:center; gap:6px;
+    }
+    .btn.primary { border-color:var(--accent); background:var(--accent); color:#fff; }
+    .btn.ghost { background:transparent; }
+    .container { max-width:880px; margin:0 auto; padding:16px; }
+    .section { margin-bottom:18px; }
+    .section-header {
+      display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px;
+    }
+    .section-title { font-weight:600; font-size:16px; }
+    .section-meta { font-size:12px; color:var(--muted); }
+    .note-card {
+      background:var(--card); border:1px solid var(--border); border-radius:14px; padding:12px 14px; margin-bottom:10px;
+      box-shadow:0 8px 20px rgba(15,23,42,.05);
+    }
+    .note-head { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+    .note-body { white-space:pre-wrap; line-height:1.4; font-size:15px; margin-top:6px; }
+    .note-actions { display:flex; gap:6px; }
+    .note-action {
+      border:1px solid var(--border); background:#fff; border-radius:8px; padding:2px 6px; cursor:pointer; font-size:13px;
+    }
+    .note-action.delete { color:var(--danger); border-color:#f0b4b4; }
+    .note-meta { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; font-size:12px; color:var(--muted); }
+    .chip { padding:2px 8px; border:1px solid var(--border); border-radius:999px; color:#334155; }
+    .empty-state {
+      border:1px dashed var(--border); border-radius:14px; padding:16px; color:var(--muted); text-align:center;
+    }
+    .form-sheet {
+      background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; margin-bottom:16px;
+      box-shadow:0 12px 26px rgba(15,23,42,.08);
+    }
+    .form-sheet h2 { margin:0 0 10px; font-size:16px; }
+    .form-sheet textarea, .form-sheet input, .form-sheet select {
+      width:100%; border:1px solid var(--border); border-radius:12px; padding:10px; font:16px/1.4 system-ui; margin-top:8px;
+    }
+    .form-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+    .modal {
+      position:fixed; inset:0; background:rgba(15,23,42,.35); display:none; align-items:center; justify-content:center; padding:16px;
+      z-index:20;
+    }
+    .modal.visible { display:flex; }
+    .modal .panel { width:min(480px, 100%); background:#fff; border-radius:16px; padding:16px; border:1px solid var(--border); }
+    .modal .panel h3 { margin:0 0 10px; font-size:16px; }
+    @media (max-width: 720px) {
+      .topbar { flex-direction:column; align-items:flex-start; }
+      .topbar .actions { width:100%; justify-content:flex-start; }
+      .container { padding:12px; }
+      .note-body { font-size:14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      <div class="title">Список задач — {{ user }}</div>
+      <div class="section-meta">Компактный вид для телефона</div>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/board/{{ user }}">На доску</a>
+      <button class="btn" id="btnRefresh">Обновить</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="form-sheet">
+      <h2>Быстрое добавление</h2>
+      <form id="quickNoteForm">
+        <textarea name="text" rows="3" placeholder="Запиши задачу..." required maxlength="2000"></textarea>
+        <div class="form-actions">
+          <button class="btn" type="reset">Очистить</button>
+          <button class="btn primary" type="submit">Добавить</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="listContainer"></div>
+  </div>
+
+  <div id="editModal" class="modal">
+    <div class="panel">
+      <h3>Редактировать заметку</h3>
+      <form id="editNoteForm">
+        <textarea name="text" rows="3" required maxlength="2000"></textarea>
+        <label for="editSeverity">Важность</label>
+        <select id="editSeverity" name="severity">
+          <option value="normal">normal</option>
+          <option value="low">low</option>
+          <option value="high">high</option>
+        </select>
+        <label for="editNotify">Время</label>
+        <input id="editNotify" name="notify_time" type="datetime-local">
+        <div class="form-actions">
+          <button class="btn" type="button" id="btnCancelEdit">Отменить</button>
+          <button class="btn primary" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+<script>
+const user = {{ user | tojson }};
+{% raw %}
+const listContainer = document.getElementById('listContainer');
+const btnRefresh = document.getElementById('btnRefresh');
+const quickNoteForm = document.getElementById('quickNoteForm');
+const editModal = document.getElementById('editModal');
+const editNoteForm = document.getElementById('editNoteForm');
+const btnCancelEdit = document.getElementById('btnCancelEdit');
+
+let data = null;
+let nextNotePosition = null;
+let editingNoteId = null;
+const noteVerticalSpacing = 140;
+
+function escapeHtml(s) {
+  return (s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+}
+
+function severityRank(value) {
+  if (value === 'high') return 0;
+  if (value === 'normal') return 1;
+  if (value === 'low') return 2;
+  return 3;
+}
+
+function formatNotifyTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return '';
+  return date.toLocaleString();
+}
+
+function refreshNextNotePositionFromData() {
+  if (data?.notes?.length) {
+    const latest = data.notes[0];
+    const baseX = latest.pos_x ?? 0;
+    const baseY = latest.pos_y ?? 0;
+    nextNotePosition = { x: baseX, y: baseY + noteVerticalSpacing };
+    return;
+  }
+  nextNotePosition = { x: 120, y: 120 };
+}
+
+function getNextNotePlacement() {
+  if (!nextNotePosition) {
+    refreshNextNotePositionFromData();
+  }
+  return { ...nextNotePosition };
+}
+
+async function loadList() {
+  const res = await fetch(`/api/board/${encodeURIComponent(user)}`);
+  data = await res.json();
+  refreshNextNotePositionFromData();
+  render();
+}
+
+function buildSection(title, notes) {
+  const section = document.createElement('section');
+  section.className = 'section';
+  section.innerHTML = `
+    <div class="section-header">
+      <div class="section-title">${escapeHtml(title)}</div>
+      <div class="section-meta">${notes.length} заметок</div>
+    </div>
+  `;
+  if (notes.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'Пока пусто';
+    section.appendChild(empty);
+    return section;
+  }
+  for (const n of notes) {
+    const card = document.createElement('div');
+    card.className = 'note-card';
+    card.dataset.id = n.id;
+    card.dataset.text = n.text;
+    card.dataset.severity = n.severity;
+    card.dataset.notifyTime = n.notify_time ?? '';
+    const chips = [];
+    if (n.severity) chips.push(`важность:${n.severity}`);
+    if (n.tag) chips.push(`tag:${n.tag}`);
+    if (n.device) chips.push(`device:${n.device}`);
+    const notifyLabel = formatNotifyTime(n.notify_time);
+    if (notifyLabel) chips.push(`напомню в "${notifyLabel}"`);
+    card.innerHTML = `
+      <div class="note-head">
+        <div></div>
+        <div class="note-actions">
+          <button class="note-action note-edit" title="Редактировать">✎</button>
+          <button class="note-action note-delete delete" title="Удалить">×</button>
+        </div>
+      </div>
+      <div class="note-body">${escapeHtml(n.text)}</div>
+      <div class="note-meta">
+        ${chips.map((chip) => `<span class="chip">${escapeHtml(chip)}</span>`).join('')}
+      </div>
+    `;
+    const editBtn = card.querySelector('.note-edit');
+    const deleteBtn = card.querySelector('.note-delete');
+    if (editBtn) {
+      editBtn.addEventListener('click', () => openEditModal(card));
+    }
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async () => {
+        if (!confirm('Удалить заметку?')) return;
+        const id = parseInt(card.dataset.id, 10);
+        if (!id) return;
+        await fetch(`/api/notes/${id}`, { method: 'DELETE' });
+        await loadList();
+      });
+    }
+    section.appendChild(card);
+  }
+  return section;
+}
+
+function render() {
+  if (!data) return;
+  listContainer.innerHTML = '';
+  const notesByList = new Map();
+  const lists = data.lists ?? [];
+  for (const list of lists) {
+    notesByList.set(list.id, []);
+  }
+  const unassigned = [];
+  const notes = data.notes ?? [];
+  for (const note of notes) {
+    if (note.todo_list_id && notesByList.has(note.todo_list_id)) {
+      notesByList.get(note.todo_list_id).push(note);
+    } else {
+      unassigned.push(note);
+    }
+  }
+  for (const list of lists) {
+    const items = notesByList.get(list.id) || [];
+    items.sort((a, b) => {
+      const bySeverity = severityRank(a.severity) - severityRank(b.severity);
+      if (bySeverity !== 0) return bySeverity;
+      return a.id - b.id;
+    });
+    listContainer.appendChild(buildSection(list.title, items));
+  }
+  if (unassigned.length) {
+    unassigned.sort((a, b) => a.id - b.id);
+    listContainer.appendChild(buildSection('Без списка', unassigned));
+  }
+  if (!lists.length && !unassigned.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'Пока нет задач. Добавь первую.';
+    listContainer.appendChild(empty);
+  }
+}
+
+function toDatetimeLocal(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return '';
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function toIsoTimestamp(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return null;
+  return date.toISOString();
+}
+
+function openEditModal(noteEl) {
+  editingNoteId = parseInt(noteEl.dataset.id, 10);
+  const text = noteEl.dataset.text ?? '';
+  const severity = noteEl.dataset.severity ?? 'normal';
+  const notifyTime = noteEl.dataset.notifyTime ?? '';
+  const textarea = editNoteForm.querySelector('textarea[name="text"]');
+  const severitySelect = editNoteForm.querySelector('select[name="severity"]');
+  const notifyInput = editNoteForm.querySelector('input[name="notify_time"]');
+  if (textarea) textarea.value = text;
+  if (severitySelect) severitySelect.value = severity;
+  if (notifyInput) notifyInput.value = toDatetimeLocal(notifyTime);
+  editModal.classList.add('visible');
+}
+
+function closeEditModal() {
+  editModal.classList.remove('visible');
+  editingNoteId = null;
+}
+
+btnCancelEdit.addEventListener('click', closeEditModal);
+editModal.addEventListener('click', (event) => {
+  if (event.target === editModal) {
+    closeEditModal();
+  }
+});
+
+editNoteForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!editingNoteId) return;
+  const formData = new FormData(editNoteForm);
+  const text = (formData.get('text') ?? '').toString().trim();
+  const severity = (formData.get('severity') ?? 'normal').toString();
+  const notifyValue = toIsoTimestamp((formData.get('notify_time') ?? '').toString());
+  const payload = {
+    text,
+    severity,
+    notify_by: notifyValue ? 'time' : null,
+    notify_value: notifyValue ? { at: notifyValue } : null,
+  };
+  await fetch(`/api/notes/${editingNoteId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  closeEditModal();
+  await loadList();
+});
+
+quickNoteForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const formData = new FormData(quickNoteForm);
+  const text = (formData.get('text') ?? '').toString().trim();
+  if (!text) return;
+  const placement = getNextNotePlacement();
+  const x = placement.x;
+  const y = placement.y;
+  await fetch('/new_note', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user,
+      text,
+      device: getPlatformLabel(),
+      pos_x: x,
+      pos_y: y,
+    }),
+  });
+  nextNotePosition = { x, y: y + noteVerticalSpacing };
+  quickNoteForm.reset();
+  await loadList();
+});
+
+function getPlatformLabel() {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const patterns = [
+    { label: 'Mac OS X', regex: /Mac OS X ([0-9_\.]+)/i },
+    { label: 'iOS', regex: /iPhone OS ([0-9_\.]+)/i },
+    { label: 'iOS', regex: /iPad; CPU OS ([0-9_\.]+)/i },
+    { label: 'Android', regex: /Android ([0-9.]+)/i },
+    { label: 'Windows', regex: /Windows NT ([0-9.]+)/i },
+    { label: 'Linux', regex: /Linux ([^;\)]+)/i },
+  ];
+  for (const { label, regex } of patterns) {
+    const match = ua.match(regex);
+    if (match) {
+      const version = match[1].replace(/_/g, '.');
+      return `${label} ${version}`.trim();
+    }
+  }
+  if (platform && platform !== 'MacIntel' && platform !== 'Win32' && platform !== 'Linux x86_64') {
+    return platform;
+  }
+  if (/Macintosh/i.test(ua)) return 'Macintosh';
+  if (/Windows/i.test(ua)) return 'Windows';
+  if (/Android/i.test(ua)) return 'Android';
+  return platform || 'unknown';
+}
+
+btnRefresh.addEventListener('click', loadList);
+
+loadList();
+{% endraw %}
+</script>
+</body>
+</html>
