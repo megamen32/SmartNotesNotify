@@ -128,9 +128,19 @@ let editingNoteId = null;
 let hasAutoFit = false;
 const noteVerticalSpacing = 140;
 let nextNotePosition = null;
+const focusNoteId = (() => {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('focus_note_id');
+  const id = raw ? parseInt(raw, 10) : null;
+  return Number.isFinite(id) ? id : null;
+})();
+const cameraStorageKey = `board_camera_${user}`;
+const cameraSaveDebounceMs = 150;
+let cameraSaveTimer = null;
 
 function applyTransform() {
   world.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+  scheduleCameraSave();
 }
 
 function worldToScreen(x,y) {
@@ -151,8 +161,16 @@ async function loadBoard() {
   refreshNextNotePositionFromData();
   render();
   if (!hasAutoFit) {
+    const restored = restoreCamera();
+    if (restored) {
+      hasAutoFit = true;
+      return;
+    }
     fitViewToLists();
     hasAutoFit = true;
+  }
+  if (focusNoteId) {
+    focusOnNote(focusNoteId);
   }
 }
 
@@ -176,6 +194,38 @@ function getNextNotePlacement() {
     refreshNextNotePositionFromData();
   }
   return { ...nextNotePosition };
+}
+
+function scheduleCameraSave() {
+  if (cameraSaveTimer) {
+    clearTimeout(cameraSaveTimer);
+  }
+  cameraSaveTimer = setTimeout(() => {
+    try {
+      const payload = JSON.stringify({ panX, panY, scale });
+      localStorage.setItem(cameraStorageKey, payload);
+    } catch (err) {
+      // ignore storage failures
+    }
+  }, cameraSaveDebounceMs);
+}
+
+function restoreCamera() {
+  try {
+    const raw = localStorage.getItem(cameraStorageKey);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.panX !== 'number' || typeof parsed?.panY !== 'number' || typeof parsed?.scale !== 'number') {
+      return false;
+    }
+    panX = parsed.panX;
+    panY = parsed.panY;
+    scale = Math.min(2.5, Math.max(0.35, parsed.scale));
+    applyTransform();
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 function render() {
@@ -207,6 +257,14 @@ function render() {
     el.dataset.sev = n.severity;
     el.dataset.todoListId = (n.todo_list_id ?? '');
     el.dataset.notifyTime = n.notify_time ?? '';
+    el.dataset.device = n.device ?? '';
+    const chips = [];
+    chips.push(`#${n.id}`);
+    if (n.severity) chips.push(`важность:${n.severity}`);
+    if (n.device) chips.push(`device:${n.device}`);
+    if (n.tag) chips.push(`tag:${n.tag}`);
+    const notifyLabel = formatNotifyTime(n.notify_time);
+    if (notifyLabel) chips.push(`напомню в "${notifyLabel}"`);
     el.innerHTML = `
       <div class="actions">
         <button class="action-btn note-action note-edit" title="Редактировать">✎</button>
@@ -214,10 +272,7 @@ function render() {
       </div>
       <div class="body">${escapeHtml(n.text)}</div>
       <div class="meta">
-        <span class="chip">#${n.id}</span>
-        <span class="chip">${n.severity}</span>
-        <span class="chip">${n.tag ?? 'no-tag'}</span>
-        <span class="chip">${n.is_processed_by_llm ? 'llm:yes' : 'llm:no'}</span>
+        ${chips.map((chip) => `<span class="chip">${escapeHtml(chip)}</span>`).join('')}
       </div>
     `;
     world.appendChild(el);
@@ -244,8 +299,25 @@ function render() {
   }
 }
 
+function focusOnNote(noteId) {
+  const note = data?.notes?.find((n) => n.id === noteId);
+  if (!note) return;
+  const noteCenterX = note.pos_x + 130;
+  const noteCenterY = note.pos_y + 40;
+  panX = viewport.clientWidth / 2 - noteCenterX * scale;
+  panY = viewport.clientHeight / 2 - noteCenterY * scale;
+  applyTransform();
+}
+
 function escapeHtml(s) {
   return (s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+}
+
+function formatNotifyTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return '';
+  return date.toLocaleString();
 }
 
 async function patchNote(id, patch) {
@@ -409,7 +481,7 @@ createNoteForm.addEventListener('submit', async (event) => {
   if (!text) {
     return;
   }
-  const placement = getNextNotePlacement();
+  const placement = screenToWorld(lastCursor.x, lastCursor.y);
   const x = placement.x;
   const y = placement.y;
   await fetch('/new_note', {

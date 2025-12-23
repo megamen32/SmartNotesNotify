@@ -30,6 +30,7 @@ class NewNoteOut(BaseModel):
 class NotePatchIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    text: Optional[str] = Field(None, min_length=1, max_length=20000)
     pos_x: Optional[float] = None
     pos_y: Optional[float] = None
     todo_list_id: Optional[int] = None

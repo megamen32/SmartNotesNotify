@@ -36,6 +36,7 @@ async def board_json(user: str, db: AsyncSession = Depends(get_session)):
                 "severity": n.severity,
                 "tag": n.tag,
                 "is_processed_by_llm": n.is_processed_by_llm,
+                "device": n.device,
                 "notify_time": (
                     n.notify_value.get("at") if isinstance(n.notify_value, dict) and n.notify_by == "time" and n.notify_value.get("at")
                     else None
