@@ -8,7 +8,7 @@ User=roomhacker
 WorkingDirectory=/home/roomhacker/PycharmProjects/SmartNotesNotify
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/home/roomhacker/PycharmProjects/SmartNotesNotify/.env
-ExecStart=/home/roomhacker/PycharmProjects/SmartNotesNotify/.venv/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 9432
+ExecStart=/home/roomhacker/PycharmProjects/SmartNotesNotify/.venv/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 9432 --reload
 Restart=on-failure
 RestartSec=5
 
