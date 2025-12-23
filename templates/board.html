@@ -64,6 +64,22 @@
     #noteForm .hint, #noteEditForm .hint { font-size:12px; color:#777; margin-top:6px; }
     #noteForm .form-heading, #noteEditForm .form-heading { font-weight:600; margin-bottom:8px; }
     #noteEditForm .field-label { font-size:12px; color:#444; margin-top:10px; display:block; }
+    .settings-panel {
+      position:fixed;
+      right:12px;
+      top:60px;
+      width:240px;
+      background:#fff;
+      border:1px solid rgba(0,0,0,.1);
+      border-radius:14px;
+      padding:16px;
+      box-shadow:0 20px 40px rgba(0,0,0,.1);
+      display:none;
+      z-index:15;
+    }
+    .settings-panel.visible { display:block; }
+    .settings-panel label { display:flex; align-items:center; gap:6px; margin-bottom:8px; font-size:14px; }
+    .settings-heading { font-weight:600; margin-bottom:12px; }
   </style>
 </head>
 <body>
@@ -75,6 +91,7 @@
     <button id="btnProcess">Process by LLM</button>
     <button id="btnUndo">Undo</button>
     <button id="btnRedo">Redo</button>
+    <button id="btnViewSettings">Настройки вида</button>
     <button id="btnReset">Reset view</button>
   </div>
   <div id="noteForm">
@@ -85,7 +102,7 @@
         <button type="button" id="btnCancelNote">Отменить</button>
         <button type="submit">Создать в центре</button>
       </div>
-      <div class="hint">После создания заметка появится в центре видимой области.</div>
+  <div class="hint">После создания заметка появится в центре видимой области.</div>
     </form>
   </div>
   <div id="noteEditForm">
@@ -107,6 +124,14 @@
       <div class="hint">Время используется для напоминаний (notify_by=time).</div>
     </form>
   </div>
+  <div id="viewSettingsPanel" class="settings-panel">
+    <div class="settings-heading">Настройки вида</div>
+    <label><input type="checkbox" id="viewSettingShowDevice"> Показывать device</label>
+    <label><input type="checkbox" id="viewSettingShowNumber"> Показывать номер заметки</label>
+    <div class="form-actions">
+      <button type="button" id="btnCloseViewSettings">Закрыть</button>
+    </div>
+  </div>
   <div id="viewport">
     <div id="world"></div>
   </div>
@@ -122,7 +147,12 @@ const btnNewNote = document.getElementById('btnNewNote');
 const btnProcess = document.getElementById('btnProcess');
 const btnUndo = document.getElementById('btnUndo');
 const btnRedo = document.getElementById('btnRedo');
+const btnViewSettings = document.getElementById('btnViewSettings');
 const btnReset = document.getElementById('btnReset');
+const viewSettingsPanel = document.getElementById('viewSettingsPanel');
+const viewSettingShowDevice = document.getElementById('viewSettingShowDevice');
+const viewSettingShowNumber = document.getElementById('viewSettingShowNumber');
+const btnCloseViewSettings = document.getElementById('btnCloseViewSettings');
 const noteForm = document.getElementById('noteForm');
 const createNoteForm = document.getElementById('createNoteForm');
 const btnCancelNote = document.getElementById('btnCancelNote');
@@ -163,6 +193,8 @@ const listRowStartX = 120;
 const listRowStartY = 120;
 const listRowGap = 40;
 const frameLabelOffset = 32;
+const viewSettingsStorageKey = `board_view_settings_${user}`;
+let viewSettings = loadViewSettings();
 
 function applyTransform() {
   world.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
@@ -271,6 +303,7 @@ function restoreCamera() {
 }
 
 function render() {
+  if (!data) return;
   world.innerHTML = '';
   frames.clear();
   frameLabels.clear();
@@ -313,9 +346,11 @@ function render() {
       el.classList.add('attached');
     }
     const chips = [];
-    chips.push(`#${n.id}`);
+    if (viewSettings.showNumber) {
+      chips.push(`#${n.id}`);
+    }
     if (n.severity) chips.push(`важность:${n.severity}`);
-    if (n.device) chips.push(`device:${n.device}`);
+    if (viewSettings.showDevice && n.device) chips.push(`device:${n.device}`);
     if (n.tag) chips.push(`tag:${n.tag}`);
     const notifyLabel = formatNotifyTime(n.notify_time);
     if (notifyLabel) chips.push(`напомню в "${notifyLabel}"`);
@@ -613,6 +648,61 @@ function closeForm(el) {
   el.classList.remove('visible');
 }
 
+function getPlatformLabel() {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const patterns = [
+    { label: 'Mac OS X', regex: /Mac OS X ([0-9_\.]+)/i },
+    { label: 'iOS', regex: /iPhone OS ([0-9_\.]+)/i },
+    { label: 'iOS', regex: /iPad; CPU OS ([0-9_\.]+)/i },
+    { label: 'Android', regex: /Android ([0-9.]+)/i },
+    { label: 'Windows', regex: /Windows NT ([0-9.]+)/i },
+    { label: 'Linux', regex: /Linux ([^;\)]+)/i },
+  ];
+  for (const { label, regex } of patterns) {
+    const match = ua.match(regex);
+    if (match) {
+      const version = match[1].replace(/_/g, '.');
+      return `${label} ${version}`.trim();
+    }
+  }
+  if (platform && platform !== 'MacIntel' && platform !== 'Win32' && platform !== 'Linux x86_64') {
+    return platform;
+  }
+  if (/Macintosh/i.test(ua)) return 'Macintosh';
+  if (/Windows/i.test(ua)) return 'Windows';
+  if (/Android/i.test(ua)) return 'Android';
+  return platform || 'unknown';
+}
+
+function loadViewSettings() {
+  try {
+    const raw = localStorage.getItem(viewSettingsStorageKey);
+    if (!raw) return { showDevice: true, showNumber: true };
+    const parsed = JSON.parse(raw);
+    return {
+      showDevice: typeof parsed.showDevice === 'boolean' ? parsed.showDevice : true,
+      showNumber: typeof parsed.showNumber === 'boolean' ? parsed.showNumber : true,
+    };
+  } catch (err) {
+    return { showDevice: true, showNumber: true };
+  }
+}
+
+function saveViewSettings(settings) {
+  try {
+    localStorage.setItem(viewSettingsStorageKey, JSON.stringify(settings));
+  } catch (err) {
+    // ignore storage errors
+  }
+}
+
+function updateViewSettings(fields) {
+  viewSettings = { ...viewSettings, ...fields };
+  saveViewSettings(viewSettings);
+  render();
+}
+
 btnNewNote.addEventListener('click', openNoteForm);
 btnCancelNote.addEventListener('click', () => closeForm(noteForm));
 
@@ -656,6 +746,25 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
+btnViewSettings.addEventListener('click', () => {
+  viewSettingShowDevice.checked = viewSettings.showDevice;
+  viewSettingShowNumber.checked = viewSettings.showNumber;
+  viewSettingsPanel.classList.add('visible');
+});
+
+btnCloseViewSettings.addEventListener('click', () => {
+  viewSettingsPanel.classList.remove('visible');
+});
+
+const applyViewSettingsChanges = () => {
+  updateViewSettings({
+    showDevice: viewSettingShowDevice.checked,
+    showNumber: viewSettingShowNumber.checked,
+  });
+};
+viewSettingShowDevice.addEventListener('change', applyViewSettingsChanges);
+viewSettingShowNumber.addEventListener('change', applyViewSettingsChanges);
+
 createNoteForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const formData = new FormData(createNoteForm);
@@ -672,7 +781,7 @@ createNoteForm.addEventListener('submit', async (event) => {
     body: JSON.stringify({
       user,
       text,
-      device: navigator.userAgent,
+      device: getPlatformLabel(),
       pos_x: x,
       pos_y: y,
     }),
@@ -836,6 +945,12 @@ viewport.addEventListener('wheel', (e) => {
 }, { passive:false });
 
 document.addEventListener('keydown', (event) => {
+  const target = event.target;
+  const isEditable =
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.closest('input, textarea, select, [role="textbox"]'));
+  if (isEditable) return;
   if (event.key.toLowerCase() === 'n' && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
     openNoteForm();
