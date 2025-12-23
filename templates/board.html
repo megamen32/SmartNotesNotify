@@ -13,16 +13,30 @@
       box-sizing:border-box; padding:10px;
     }
     .frame .title { font-weight:600; margin-bottom:8px; }
+    .frame-label {
+      position:absolute;
+      padding:4px 12px;
+      border-radius:12px;
+      background:#fff;
+      border:1px solid #ddd;
+      box-shadow:0 6px 16px rgba(0,0,0,.08);
+      font-weight:600;
+      pointer-events:none;
+      z-index:5;
+      white-space:nowrap;
+    }
     .note {
       position:absolute; width:260px; min-height:80px; border-radius:14px; padding:24px 10px 10px;
       background:#fff; border:1px solid #ddd; box-shadow:0 6px 18px rgba(0,0,0,.08);
       box-sizing:border-box; cursor:grab; user-select:none; touch-action:none;
     }
+    .note.attached { border-color:#94a3b8; box-shadow:0 8px 24px rgba(15,23,42,.18); }
     .note.dragging { cursor:grabbing; z-index:5; }
-    .note .actions { position:absolute; top:6px; right:6px; display:flex; gap:6px; }
+    .note .actions { position:absolute; top:6px; right:6px; display:flex; gap:6px; pointer-events:auto; }
     .note .action-btn {
       border:1px solid #d4d4d4; background:#fff; border-radius:8px; padding:2px 6px; cursor:pointer; font-size:14px;
     }
+    .note .action-btn { touch-action:manipulation; }
     .note .action-btn.delete { color:#b91c1c; border-color:#f0b4b4; }
     .note .body { white-space:pre-wrap; }
     .note[data-sev="high"] { border-color:#d66; }
@@ -116,6 +130,7 @@ let scale = 1;
 let panX = 0, panY = 0;
 let data = null;
 let frames = new Map();
+let frameLabels = new Map();
 let notes = new Map();
 let lastCursor = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 const pointers = new Map();
@@ -137,6 +152,13 @@ const focusNoteId = (() => {
 const cameraStorageKey = `board_camera_${user}`;
 const cameraSaveDebounceMs = 150;
 let cameraSaveTimer = null;
+const listLayoutPadding = 16;
+const listLayoutGap = 12;
+let pendingLayoutFrameId = null;
+const listRowStartX = 120;
+const listRowStartY = 120;
+const listRowGap = 40;
+const frameLabelOffset = 32;
 
 function applyTransform() {
   world.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
@@ -158,6 +180,7 @@ window.addEventListener('pointermove', (event) => {
 async function loadBoard() {
   const res = await fetch(`/api/board/${encodeURIComponent(user)}`);
   data = await res.json();
+  await layoutListsHorizontally();
   refreshNextNotePositionFromData();
   render();
   if (!hasAutoFit) {
@@ -171,6 +194,21 @@ async function loadBoard() {
   }
   if (focusNoteId) {
     focusOnNote(focusNoteId);
+  }
+}
+
+async function layoutListsHorizontally() {
+  if (!data?.lists?.length) return;
+  const baseY = data.lists[0]?.pos_y ?? listRowStartY;
+  for (let i = 0; i < data.lists.length; i += 1) {
+    const fr = data.lists[i];
+    const desiredX = listRowStartX + i * (fr.width + listRowGap);
+    const desiredY = baseY;
+    const needsUpdate = Math.abs(fr.pos_x - desiredX) > 1 || Math.abs(fr.pos_y - desiredY) > 1;
+    if (!needsUpdate) continue;
+    fr.pos_x = desiredX;
+    fr.pos_y = desiredY;
+    await patchTodoList(fr.id, { pos_x: desiredX, pos_y: desiredY });
   }
 }
 
@@ -231,6 +269,7 @@ function restoreCamera() {
 function render() {
   world.innerHTML = '';
   frames.clear();
+  frameLabels.clear();
   notes.clear();
 
   for (const fr of data.lists) {
@@ -241,9 +280,17 @@ function render() {
     el.style.width = fr.width + 'px';
     el.style.height = fr.height + 'px';
     el.dataset.id = fr.id;
-    el.innerHTML = `<div class="title">${escapeHtml(fr.title)}</div>`;
+    el.innerHTML = '';
     world.appendChild(el);
     frames.set(fr.id, el);
+
+    const label = document.createElement('div');
+    label.className = 'frame-label';
+    label.style.left = fr.pos_x + 'px';
+    label.style.top = (fr.pos_y - frameLabelOffset) + 'px';
+    label.textContent = fr.title;
+    world.appendChild(label);
+    frameLabels.set(fr.id, label);
   }
 
   for (const n of data.notes) {
@@ -258,6 +305,9 @@ function render() {
     el.dataset.todoListId = (n.todo_list_id ?? '');
     el.dataset.notifyTime = n.notify_time ?? '';
     el.dataset.device = n.device ?? '';
+    if (n.todo_list_id) {
+      el.classList.add('attached');
+    }
     const chips = [];
     chips.push(`#${n.id}`);
     if (n.severity) chips.push(`важность:${n.severity}`);
@@ -280,22 +330,101 @@ function render() {
     makeDraggable(el);
     const editBtn = el.querySelector('.note-edit');
     const deleteBtn = el.querySelector('.note-delete');
+    const handleEdit = (event) => {
+      event.stopPropagation();
+      openEditForm(el, event);
+    };
+    const handleDelete = async (event) => {
+      event.stopPropagation();
+      const id = parseInt(el.dataset.id, 10);
+      if (!id) return;
+      if (!confirm('Удалить заметку?')) return;
+      await fetch(`/api/notes/${id}`, { method:'DELETE' });
+      await loadBoard();
+    };
     if (editBtn) {
-      editBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        openEditForm(el, event);
-      });
+      editBtn.addEventListener('click', handleEdit);
+      editBtn.addEventListener('touchend', handleEdit);
     }
     if (deleteBtn) {
-      deleteBtn.addEventListener('click', async (event) => {
-        event.stopPropagation();
-        const id = parseInt(el.dataset.id, 10);
-        if (!id) return;
-        if (!confirm('Удалить заметку?')) return;
-        await fetch(`/api/notes/${id}`, { method:'DELETE' });
-        await loadBoard();
-      });
+      deleteBtn.addEventListener('click', handleDelete);
+      deleteBtn.addEventListener('touchend', handleDelete);
     }
+  }
+  layoutNotesInFrames();
+}
+
+function severityRank(value) {
+  if (value === 'high') return 0;
+  if (value === 'normal') return 1;
+  if (value === 'low') return 2;
+  return 3;
+}
+
+async function layoutNotesInFrames() {
+  if (!data?.lists?.length || !data?.notes?.length) return;
+  const notesByFrame = new Map();
+  for (const n of data.notes) {
+    if (!n.todo_list_id) continue;
+    if (!notesByFrame.has(n.todo_list_id)) {
+      notesByFrame.set(n.todo_list_id, []);
+    }
+    notesByFrame.get(n.todo_list_id).push(n);
+  }
+  for (const fr of data.lists) {
+    const items = notesByFrame.get(fr.id);
+    if (!items || items.length === 0) continue;
+    items.sort((a, b) => {
+      const bySeverity = severityRank(a.severity) - severityRank(b.severity);
+      if (bySeverity !== 0) return bySeverity;
+      return a.id - b.id;
+    });
+    let currentY = fr.pos_y + listLayoutPadding;
+    const baseX = fr.pos_x + listLayoutPadding;
+    const maxX = fr.pos_x + fr.width - listLayoutPadding - 260;
+    const columnWidth = 260 + listLayoutGap;
+    let columnIndex = 0;
+    let columnY = currentY;
+    let maxBottom = fr.pos_y + listLayoutPadding;
+    for (const n of items) {
+      const noteEl = notes.get(n.id);
+      if (!noteEl) continue;
+      const desiredX = Math.min(baseX + columnIndex * columnWidth, maxX);
+      const desiredY = columnY;
+      noteEl.style.left = desiredX + 'px';
+      noteEl.style.top = desiredY + 'px';
+      const noteHeight = noteEl.offsetHeight || 100;
+      columnY += noteHeight + listLayoutGap;
+      const columnBottom = fr.pos_y + fr.height - listLayoutPadding;
+      maxBottom = Math.max(maxBottom, desiredY + noteHeight);
+      if (columnY + noteHeight > columnBottom && baseX + (columnIndex + 1) * columnWidth <= maxX) {
+        columnIndex += 1;
+        columnY = currentY;
+      }
+    }
+    const requiredHeight = Math.max(fr.height, (maxBottom - fr.pos_y) + listLayoutPadding);
+    if (requiredHeight > fr.height + 1) {
+      const frameEl = frames.get(fr.id);
+      if (frameEl) {
+        frameEl.style.height = requiredHeight + 'px';
+      }
+      await patchTodoList(fr.id, { height: requiredHeight });
+      fr.height = requiredHeight;
+    }
+    if (pendingLayoutFrameId && pendingLayoutFrameId === fr.id) {
+      await persistLayoutForFrame(items);
+    }
+  }
+  pendingLayoutFrameId = null;
+}
+
+async function persistLayoutForFrame(items) {
+  for (const n of items) {
+    const noteEl = notes.get(n.id);
+    if (!noteEl) continue;
+    const pos_x = parseFloat(noteEl.style.left || '0');
+    const pos_y = parseFloat(noteEl.style.top || '0');
+    await patchNote(n.id, { pos_x, pos_y, todo_list_id: n.todo_list_id });
   }
 }
 
@@ -322,6 +451,14 @@ function formatNotifyTime(value) {
 
 async function patchNote(id, patch) {
   await fetch(`/api/notes/${id}`, {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(patch)
+  });
+}
+
+async function patchTodoList(id, patch) {
+  await fetch(`/api/todo_lists/${id}`, {
     method:'PATCH',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify(patch)
@@ -405,6 +542,7 @@ function makeDraggable(el) {
     const frameId = findFrameUnderNote(el);
     const patch = { pos_x, pos_y, todo_list_id: frameId };
     await patchNote(id, patch);
+    pendingLayoutFrameId = frameId;
     await loadBoard();
   };
 
@@ -586,6 +724,7 @@ function releasePointer(e) {
 
 let panning = false;
 let panStart = null;
+const capturedPointers = new Set();
 
 viewport.addEventListener('pointerdown', (e) => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -601,7 +740,9 @@ viewport.addEventListener('pointerdown', (e) => {
     pinchWorldCenter = screenToWorld(pinchCenter.x, pinchCenter.y);
     return;
   }
-  if (!isPinching && e.target === viewport) {
+  const isNoteElement = !!e.target.closest('.note');
+  const isOverlayControl = !!e.target.closest('#noteForm, #noteEditForm, #hud');
+  if (!isPinching && !isNoteElement && !isOverlayControl) {
     panning = true;
     panStart = { x: e.clientX, y: e.clientY, panX, panY };
   }
