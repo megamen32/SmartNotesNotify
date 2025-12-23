@@ -713,7 +713,10 @@ btnZoomOut.addEventListener('click', () => adjustZoom(0.9));
 
 function releasePointer(e) {
   pointers.delete(e.pointerId);
-  viewport.releasePointerCapture(e.pointerId);
+  if (viewport.hasPointerCapture && viewport.hasPointerCapture(e.pointerId)) {
+    viewport.releasePointerCapture(e.pointerId);
+  }
+  capturedPointers.delete(e.pointerId);
   if (isPinching && pointers.size < 2) {
     isPinching = false;
   }
@@ -728,10 +731,13 @@ const capturedPointers = new Set();
 
 viewport.addEventListener('pointerdown', (e) => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  viewport.setPointerCapture(e.pointerId);
   if (pointers.size === 2) {
     isPinching = true;
     panning = false;
+    for (const pointerId of pointers.keys()) {
+      viewport.setPointerCapture(pointerId);
+      capturedPointers.add(pointerId);
+    }
     const [a, b] = Array.from(pointers.values());
     const dist = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     pinchStartDist = dist;
@@ -745,6 +751,8 @@ viewport.addEventListener('pointerdown', (e) => {
   if (!isPinching && !isNoteElement && !isOverlayControl) {
     panning = true;
     panStart = { x: e.clientX, y: e.clientY, panX, panY };
+    viewport.setPointerCapture(e.pointerId);
+    capturedPointers.add(e.pointerId);
   }
 });
 
