@@ -73,6 +73,8 @@
     <button id="btnZoomOut">Zoom -</button>
     <button id="btnNewNote">Новая заметка</button>
     <button id="btnProcess">Process by LLM</button>
+    <button id="btnUndo">Undo</button>
+    <button id="btnRedo">Redo</button>
     <button id="btnReset">Reset view</button>
   </div>
   <div id="noteForm">
@@ -118,6 +120,8 @@ const btnZoomIn = document.getElementById('btnZoomIn');
 const btnZoomOut = document.getElementById('btnZoomOut');
 const btnNewNote = document.getElementById('btnNewNote');
 const btnProcess = document.getElementById('btnProcess');
+const btnUndo = document.getElementById('btnUndo');
+const btnRedo = document.getElementById('btnRedo');
 const btnReset = document.getElementById('btnReset');
 const noteForm = document.getElementById('noteForm');
 const createNoteForm = document.getElementById('createNoteForm');
@@ -611,6 +615,46 @@ function closeForm(el) {
 
 btnNewNote.addEventListener('click', openNoteForm);
 btnCancelNote.addEventListener('click', () => closeForm(noteForm));
+
+async function undoAction() {
+  const res = await fetch(`/api/users/${encodeURIComponent(user)}/undo`, { method: 'POST' });
+  const payload = await res.json();
+  if (!payload.ok) {
+    alert('Нечего отменять');
+    return;
+  }
+  await loadBoard();
+}
+
+async function redoAction() {
+  const res = await fetch(`/api/users/${encodeURIComponent(user)}/redo`, { method: 'POST' });
+  const payload = await res.json();
+  if (!payload.ok) {
+    alert('Нечего повторить');
+    return;
+  }
+  await loadBoard();
+}
+
+btnUndo.addEventListener('click', undoAction);
+btnRedo.addEventListener('click', redoAction);
+
+window.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented) return;
+  const key = event.key.toLowerCase();
+  const isMac = navigator.platform.toLowerCase().includes('mac');
+  const modKey = isMac ? event.metaKey : event.ctrlKey;
+  if (!modKey) return;
+  if (key === 'z' && !event.shiftKey) {
+    event.preventDefault();
+    undoAction();
+    return;
+  }
+  if (key === 'y' || (key === 'z' && event.shiftKey)) {
+    event.preventDefault();
+    redoAction();
+  }
+});
 
 createNoteForm.addEventListener('submit', async (event) => {
   event.preventDefault();

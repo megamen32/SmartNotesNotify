@@ -5,6 +5,10 @@ from app.models.todo_list import TodoList
 
 
 class TodoListRepo:
+    async def get(self, db: AsyncSession, list_id: int) -> TodoList | None:
+        q = await db.execute(select(TodoList).where(TodoList.id == list_id))
+        return q.scalar_one_or_none()
+
     async def list_by_user(self, db: AsyncSession, user_id: int) -> list[TodoList]:
         q = await db.execute(select(TodoList).where(TodoList.user_id == user_id))
         return list(q.scalars().all())
@@ -29,3 +33,18 @@ class TodoListRepo:
             if v is not None:
                 setattr(obj, k, v)
         await db.commit()
+
+    async def create_from_snapshot(self, db: AsyncSession, data: dict) -> TodoList:
+        todo_list = TodoList(
+            id=data.get("id"),
+            user_id=data["user_id"],
+            title=data.get("title") or "",
+            pos_x=data.get("pos_x", 0),
+            pos_y=data.get("pos_y", 0),
+            width=data.get("width", 520),
+            height=data.get("height", 360),
+        )
+        db.add(todo_list)
+        await db.commit()
+        await db.refresh(todo_list)
+        return todo_list

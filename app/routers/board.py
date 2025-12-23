@@ -62,8 +62,18 @@ async def board_page(user: str, request: Request):
 
 @router.patch("/api/todo_lists/{list_id}")
 async def patch_todo_list(list_id: int, payload: TodoListPatchIn, db: AsyncSession = Depends(get_session)):
-    await svc.lists.patch(db, list_id, **payload.model_dump())
+    await svc.patch_todo_list(db, list_id, **payload.model_dump())
     return {"ok": True}
+
+@router.post("/api/users/{user}/undo")
+async def undo_last_action(user: str, db: AsyncSession = Depends(get_session)):
+    ok = await svc.undo_last_action(db, user)
+    return {"ok": ok}
+
+@router.post("/api/users/{user}/redo")
+async def redo_last_action(user: str, db: AsyncSession = Depends(get_session)):
+    ok = await svc.redo_last_action(db, user)
+    return {"ok": ok}
 
 @router.get("/", response_class=HTMLResponse)
 async def root_page(request: Request):

@@ -24,7 +24,7 @@ async def new_note(payload: NewNoteIn, request: Request, db: AsyncSession = Depe
 
 @router.patch("/api/notes/{note_id}")
 async def patch_note(note_id: int, payload: NotePatchIn, db: AsyncSession = Depends(get_session)):
-    await svc.notes.patch(db, note_id, **payload.model_dump())
+    await svc.patch_note(db, note_id, **payload.model_dump())
     return {"ok": True}
 
 @router.post("/api/users/{user}/process_notes_by_llm")

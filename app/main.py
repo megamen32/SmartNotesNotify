@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.db import ensure_triggers, engine
 from app.models.base import Base
+import app.models.action_log  # noqa: F401
 from app.routers.board import router as board_router
 from app.routers.notes import router as notes_router
 
