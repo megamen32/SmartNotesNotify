@@ -477,8 +477,14 @@ function render() {
         event.preventDefault();
         showSeverityDropdown(severityChipEl, n.id, n.severity);
       };
+      const stopDragStart = (event) => {
+        event.stopPropagation();
+      };
       severityChipEl.addEventListener('click', handleSeverityToggle);
       severityChipEl.addEventListener('touchend', handleSeverityToggle);
+      severityChipEl.addEventListener('pointerdown', stopDragStart);
+      severityChipEl.addEventListener('mousedown', stopDragStart);
+      severityChipEl.addEventListener('touchstart', stopDragStart, { passive: true });
     }
     const toggleBtn = el.querySelector('.note-toggle-done');
     const handleToggleDone = async (event) => {
