@@ -45,6 +45,29 @@
     .note.done .body { text-decoration:line-through; opacity:.65; }
     .note.done .meta { opacity:.6; }
     .chip { padding:2px 8px; border:1px solid #ddd; border-radius:999px; }
+    .chip.severity-chip {
+      border-color:#1d4ed8;
+      color:#1d4ed8;
+      cursor:pointer;
+    }
+    .severity-dropdown {
+      position:absolute;
+      border-radius:12px;
+      border:1px solid #1d4ed8;
+      background:#1d4ed8;
+      color:#fff;
+      font-size:13px;
+      font-weight:600;
+      padding:4px 10px;
+      z-index:20;
+      min-width:120px;
+      -webkit-appearance:none;
+      appearance:none;
+    }
+    .severity-dropdown option {
+      color:#0f172a;
+      background:#fff;
+    }
     #hud {
       position:fixed; left:12px; top:12px; background:#fff; border:1px solid #ddd;
       border-radius:12px; padding:10px; box-shadow:0 8px 22px rgba(0,0,0,.08); z-index:10;
@@ -170,6 +193,56 @@ const noteEditForm = document.getElementById('noteEditForm');
 const editNoteForm = document.getElementById('editNoteForm');
 const btnCancelEdit = document.getElementById('btnCancelEdit');
 const editIsDone = document.getElementById('editIsDone');
+const severityOptions = ['low', 'normal', 'high'];
+let severityDropdown = null;
+let severityDropdownCleanup = null;
+
+function closeSeverityDropdown() {
+  if (severityDropdown) {
+    severityDropdown.remove();
+    severityDropdown = null;
+  }
+  if (severityDropdownCleanup) {
+    severityDropdownCleanup();
+    severityDropdownCleanup = null;
+  }
+}
+
+function showSeverityDropdown(anchorEl, noteId, currentSeverity) {
+  closeSeverityDropdown();
+  const select = document.createElement('select');
+  select.className = 'severity-dropdown';
+  for (const value of severityOptions) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  }
+  select.value = currentSeverity ?? 'normal';
+  select.addEventListener('change', async () => {
+    closeSeverityDropdown();
+    await patchNote(noteId, { severity: select.value });
+    await loadBoard();
+  });
+  select.addEventListener('blur', closeSeverityDropdown);
+  document.body.appendChild(select);
+  severityDropdown = select;
+
+  const rect = anchorEl.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - select.offsetWidth - 12, Math.max(8, rect.left - 4));
+  const top = Math.min(window.innerHeight - select.offsetHeight - 12, rect.bottom + 6);
+  select.style.left = `${left}px`;
+  select.style.top = `${top}px`;
+
+  const onPointerDown = (event) => {
+    if (!select.contains(event.target) && event.target !== anchorEl) {
+      closeSeverityDropdown();
+    }
+  };
+  document.addEventListener('pointerdown', onPointerDown, true);
+  severityDropdownCleanup = () => document.removeEventListener('pointerdown', onPointerDown, true);
+  select.focus();
+}
 
 let scale = 1;
 let panX = 0, panY = 0;
@@ -370,7 +443,6 @@ function render() {
     if (viewSettings.showNumber) {
       chips.push(`#${n.id}`);
     }
-    if (n.severity) chips.push(`важность:${n.severity}`);
     if (viewSettings.showDevice && n.device) chips.push(`device:${n.device}`);
     if (n.tag) chips.push(`tag:${n.tag}`);
     const notifyLabel = formatNotifyTime(n.notify_time);
@@ -380,6 +452,9 @@ function render() {
     }
     const toggleTitle = isDone ? 'Отметить как не выполнено' : 'Отметить как выполнено';
     const toggleLabel = isDone ? '↺' : '✔';
+    const severityChipHtml = n.severity
+      ? `<span class="chip severity-chip" data-note-id="${n.id}" data-severity="${n.severity}">важность:${n.severity}</span>`
+      : '';
     el.innerHTML = `
       <div class="actions">
         <button class="action-btn note-action note-edit" title="Редактировать">✎</button>
@@ -388,12 +463,23 @@ function render() {
       </div>
       <div class="body">${escapeHtml(n.text)}</div>
       <div class="meta">
+        ${severityChipHtml}
         ${chips.map((chip) => `<span class="chip">${escapeHtml(chip)}</span>`).join('')}
       </div>
     `;
     world.appendChild(el);
     notes.set(n.id, el);
     makeDraggable(el);
+    const severityChipEl = el.querySelector('.severity-chip');
+    if (severityChipEl) {
+      const handleSeverityToggle = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        showSeverityDropdown(severityChipEl, n.id, n.severity);
+      };
+      severityChipEl.addEventListener('click', handleSeverityToggle);
+      severityChipEl.addEventListener('touchend', handleSeverityToggle);
+    }
     const toggleBtn = el.querySelector('.note-toggle-done');
     const handleToggleDone = async (event) => {
       event.stopPropagation();
