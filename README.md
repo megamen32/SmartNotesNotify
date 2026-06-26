@@ -24,3 +24,8 @@ The project uses SQLAlchemy 2.0 declarative models; onboarding the database happ
 
 ## Running the board
 With the server running, open `http://localhost:9432/board/<user_key>` to pan/zoom notes, drag them between frames, and trigger the placeholder LLM analysis via the HUD button. The board fetches `/api/board/{user}` for the latest state and saves position/TODO-list assignments through `/api/notes/{note_id}`.
+
+## Screenshot
+
+![Smart Notes Notify start screen screenshot](docs/screenshots/root.png)
+
